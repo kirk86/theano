@@ -52,13 +52,6 @@ class Optimizer(object):
         learning_rate_t = learning_rate * (tt.sqrt(1. - (1. - beta2) ** i_t) /
                                            1. - (1. - beta1) ** i_t)
 
-        for p, g in zip(params, grads):
-            m = theano.shared(np.zeros(p.get_value().shape, dtype=floatX))
-            v = theano.shared(np.zeros(p.get_value().shape, dtype=floatX))
-
-            m_t = (beta1_t * g) + ((1. - beta1_t) * m)  # CHANGED from
-                                                        # b_t to beta1_t
-            v_t = (beta2 * g**2) + ((1. - beta2) * v)
 
             g_t = m_t / (tt.sqrt(v_t) + epsilon)
 
