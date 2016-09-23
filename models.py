@@ -50,7 +50,7 @@ class HiddenLayer(object):
                  W=None, b=None):
         self.X = X
         if W is None:
-            weights = Weights(low=-np.sqrt(6. / (fan_in, fan_out)),
+            weights = Weights('uniform', low=-np.sqrt(6. / (fan_in, fan_out)),
                               high=np.sqrt(6. / (fan_in, fan_out)))
 
             W = weights.init_weights(fan_in=fan_in, fan_out=fan_out,
