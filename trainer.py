@@ -9,18 +9,21 @@ import os
 import cPickle as pickle
 
 from models import LogisticRegression
+from models import MultiLayerPerceptron
 
 
 class Trainer(object):
 
-    def __init__(self, dataset, n_epochs=1000, batch_size=950, N=10000):
+    def __init__(self, dataset, n_epochs=1000, batch_size=256, n_valid=10000):
         self.trX, self.trY, self.teX, self.teY = dataset
         self.n_epochs = n_epochs
         self.batch_size = batch_size
         # get last N elements as validation set
-        if N is not None:
-            self.N = N
-            self.mask = range(len(self.trX) - 1, len(self.trX) - N - 1, -1)
+        if n_valid is not None:
+            self.n_valid = n_valid
+            self.mask = range(len(self.trX) - 1,
+                              len(self.trX) - n_valid - 1,
+                              -1)
 
             self.valX = self.trX[self.mask]
             self.valY = self.trY[self.mask]
@@ -28,26 +31,25 @@ class Trainer(object):
             self.trX = np.delete(self.trX, self.mask, 0)
             self.trY = np.delete(self.trY, self.mask, 0)
 
-    def train_logistic_regression(self, fan_in, fan_out, learning_rate=0.013):
+            # compute number of minibatches for training,
+            # validation and testing
+            self.n_train_batch = self.trX.shape[0] // self.batch_size
+            self.n_valid_batch = self.valX.shape[0] // self.batch_size
+            self.n_test_batch = self.teX.shape[0] // self.batch_size
 
-        # compute number of minibatches for training, validation and testing
-        n_train_batch = self.trX.shape[0] // self.batch_size
-        n_valid_batch = self.valX.shape[0] // self.batch_size
-        n_test_batch = self.teX.shape[0] // self.batch_size
-
+    def train_logistic_regression(self, distribution, fan_in, fan_out,
+                                  learning_rate=0.013):
         ######################
         # BUILD ACTUAL MODEL #
         ######################
         print('... building the model.')
-
-        # index = tt.lscalar('index')  # index to a [mini]batch
 
         X = tt.fmatrix('X')  # data, presented as rasterized images
         y = tt.fmatrix('y')  # labels, presented as 1-hot matrix of labels
 
         # construct the logistic regression class
         # Each MNIST image has size 28*28
-        classifier = LogisticRegression(X, fan_in, fan_out)
+        classifier = LogisticRegression(X, distribution, fan_in, fan_out)
 
         # the cost we minimize during training
         cost = classifier.neg_log_like(y)
@@ -82,6 +84,12 @@ class Trainer(object):
         predict = theano.function(inputs=[X], outputs=classifier.y_pred,
                                   allow_input_downcast=True)
 
+        self.early_stopping(classifier, train, test, validate, predict,
+                            learning_rate)
+
+    def early_stopping(self, classifier, train, test, validate, predict=None,
+                       learning_rate=0.013):
+
         ###############
         # TRAIN MODEL #
         ###############
@@ -92,7 +100,7 @@ class Trainer(object):
                                       # found
         improv_thres = 0.995  # a relative improvement of this much is
                                       # considered significant
-        valid_freq = min(n_train_batch, patience // 2)
+        valid_freq = min(self.n_train_batch, patience // 2)
                                       # go through this many
                                       # minibatche before checking the network
                                       # on the validation set; in this case we
@@ -106,7 +114,7 @@ class Trainer(object):
         epoch = 0
         while (epoch < self.n_epochs) and (not done):
             epoch += 1
-            for minibatch_idx in range(n_train_batch):
+            for minibatch_idx in range(self.n_train_batch):
 
                 minibatch_avg_cost = train(
                     self.trX[minibatch_idx * self.batch_size:
@@ -119,12 +127,12 @@ class Trainer(object):
                 train_cost = np.mean(minibatch_avg_cost)
 
                 # iteration number
-                iter_ = (epoch - 1) * n_train_batch + minibatch_idx
+                iter_ = (epoch - 1) * self.n_train_batch + minibatch_idx
 
                 # validate after each n_train_batch
                 if (iter_ + 1) % valid_freq == 0:
                     # compute zero-one loss on validation set
-                    for i in range(n_valid_batch):
+                    for i in range(self.n_valid_batch):
                         valid_losses = [
                             validate(
                                 self.valX[i * self.batch_size:
@@ -141,7 +149,7 @@ class Trainer(object):
                           " train avg. cost per minibatch {},"
                           " validation errors {}%."
                           .format(epoch, minibatch_idx + 1,
-                                  n_train_batch,
+                                  self.n_train_batch,
                                   train_cost,
                                   valid_error * 100.)
                           )
@@ -155,7 +163,7 @@ class Trainer(object):
                         best_valid_error = valid_error
 
                         # test it on the test set
-                        for i in range(n_test_batch):
+                        for i in range(self.n_test_batch):
                             test_losses = [
                                 test(
                                     self.teX[i * self.batch_size:
@@ -170,7 +178,7 @@ class Trainer(object):
                         print("epoch {}, minibatch {}/{}, test error of"
                               " best model {}%."
                               .format(epoch, minibatch_idx + 1,
-                                      n_train_batch, test_error * 100.))
+                                      self.n_train_batch, test_error * 100.))
 
                         # save the best model
                         if os.path.isdir('log_regress') is False:
@@ -227,8 +235,46 @@ class Trainer(object):
         print("Predicted values for the first 10 examples in test set:")
         print(predicted_values)
 
-    def train_multilayer_perceptron(self):
-        pass
+    def train_multilayer_perceptron(self, distribution, fan_in,
+                                    n_hidden, fan_out, learning_rate=0.012):
+
+        X = tt.fmatrix('X')
+        y = tt.fmatrix('y')
+
+        classifier = MultiLayerPerceptron(X, distribution, fan_in,
+                                          n_hidden, fan_out)
+
+        cost = (
+            classifier.neg_log_like(y) +
+            0.00 * classifier.L1 +
+            0.0001 * classifier.L2_sqr
+            )
+
+        gparams = [tt.grad(cost=cost, wrt=param)
+                   for param in classifier.params]
+
+        updates = [
+            (param, param - learning_rate * gparam)
+            for param, gparam in zip(classifier.params, gparams)
+        ]
+
+        train = theano.function(inputs=[X, y], outputs=cost,
+                                updates=updates,
+                                allow_input_downcast=True)
+
+        test = theano.function(inputs=[X, y],
+                               outputs=classifier.errors(y),
+                               allow_input_downcast=True)
+
+        validate = theano.function(inputs=[X, y],
+                                   outputs=classifier.errors(y),
+                                   allow_input_downcast=True)
+
+        predict = theano.function(inputs=[X],
+                                  outputs=classifier.logRegressionLayer.y_pred,
+                                  allow_input_downcast=True)
+
+        self.early_stopping(classifier, train, test, validate, predict)
 
     def train_autoencoder(self, n_epochs, noise):
         ############
@@ -265,7 +311,7 @@ class Trainer(object):
 
 # def test_dae():
 #     # allocate symbolic variables for the data
-#     index = tt.lscalar() # index to a [mini]batch
+      # index = tt.lscalar() # index to a [mini]batch
 #     x = tt.matrix('x')  # the data is presented as rasterized images
 
 #     rng  = np.random.RandomState(123)

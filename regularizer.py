@@ -10,11 +10,12 @@ rng = np.random.RandomState(123)
 floatX = theano.config.floatX
 
 
-class Reguralizer(object):
+class Regularizer(object):
+
     def __init__(self):
         pass
 
-    def L1(self, params, method):
+    def lnorm(self, params, method):
         if method == 'L1':
             for idx, param in zip(range(len(params)), params):
                 params[idx] = abs(param).sum()
@@ -24,19 +25,17 @@ class Reguralizer(object):
                 params[idx] = (param ** 2).sum()
             return sum(params)
 
-    def L2(self, params):
-        pass
-
     def dropout(X, p=0.):
         if p > 0:
             retain_prob = 1 - p
-            X *= srng.binomial(X.shape, p=retain_prob, dtype=floatX)  # dropout nodes
+            # dropout nodes
+            X *= srng.binomial(X.shape, p=retain_prob, dtype=floatX)
 
-            X /= retain_prob # scale the activations by (1-p). Looks like
-                             # the inverted dropout only that in those
-                             # examples scaling was performed by p instead
-                             # of (1-p)
-    return X
+            X /= retain_prob  # scale the activations by (1-p). Looks like
+                              # the inverted dropout only that in those
+                              # examples scaling was performed by p instead
+                              # of (1-p)
+        return X
 
     def maxout(self):
         pass

@@ -6,6 +6,7 @@ import numpy as np
 import time
 
 from utils import Utils
+from regularizer import Regularizer
 
 floatX = theano.config.floatX
 rng = np.random.RandomState(123)
@@ -14,9 +15,9 @@ srng = RandomStreams(123)
 
 class LogisticRegression(object):
 
-    def __init__(self, X, fan_in, fan_out):
+    def __init__(self, X, distribution, fan_in, fan_out):
 
-        self.weight = Weights('randn')
+        self.weight = Weights(distribution)
 
         self.W = self.weight.init_weights(fan_in, fan_out,
                                           name='logistic.W')
@@ -46,44 +47,57 @@ class LogisticRegression(object):
 
 class HiddenLayer(object):
 
-    def __init__(self, X, n_layers, fan_in, fan_out, activation=tt.tanh,
+    def __init__(self, X, distribution, fan_in, fan_out, activation=tt.tanh,
                  W=None, b=None):
         self.X = X
         if W is None:
-            weights = Weights('uniform', low=-np.sqrt(6. / (fan_in, fan_out)),
-                              high=np.sqrt(6. / (fan_in, fan_out)))
+            self.weight = Weights(distribution,
+                                  low=-np.sqrt(6. / (fan_in + fan_out)),
+                                  high=np.sqrt(6. / (fan_in + fan_out)))
 
-            W = weights.init_weights(fan_in=fan_in, fan_out=fan_out,
-                                     name='hidden.W')
+            W = self.weight.init_weights(fan_in=fan_in,
+                                         fan_out=fan_out,
+                                         name='hidden.W')
 
             if activation == tt.nnet.sigmoid:
                 W.set_value(W.get_value() * 4)
 
         if b is None:
-            b = weights.init_weights(fan_out=fan_out, name='hidden.b')
+            b = self.weight.init_weights(fan_out=fan_out, name='hidden.b')
 
         self.W = W
         self.b = b
 
-        lin_output = tt.dot(self.X, self.W) + self.b
+        self.h_output = tt.dot(self.X, self.W) + self.b
         self.output = (
-            lin_output if activation is None
-            else activation(lin_output)
+            self.h_output if activation is None
+            else activation(self.h_output)
         )
 
         self.params = [self.W, self.b]
 
 
 class MultiLayerPerceptron(object):
-    def __init__(self, rng, X, n_in, n_hidden, n_out):
-        self.hiddenLayer = HiddenLayer(rng=rng, X=X, n_in=n_in,
-                                       n_out=n_hidden, activation=tt.tanh)
+
+    def __init__(self, X, distribution, fan_in, n_hidden, fan_out):
+
+        self.hiddenLayer = HiddenLayer(X, distribution, fan_in,
+                                       fan_out=n_hidden)
 
         self.logRegressionLayer = LogisticRegression(
-            X=self.hiddenLayer.output,
-            n_in=n_hidden,
-            n_out=n_out
+            self.hiddenLayer.h_output, distribution,
+            fan_in=n_hidden, fan_out=fan_out
         )
+
+        regularizer = Regularizer()
+
+        self.L1_test = regularizer.lnorm([self.hiddenLayer.W,
+                                         self.logRegressionLayer.W],
+                                         'L1')
+
+        self.L2_test = regularizer.lnorm([self.hiddenLayer.W,
+                                         self.logRegressionLayer.W],
+                                         'L2')
         self.L1 = (
             abs(self.hiddenLayer.W).sum() +
             abs(self.logRegressionLayer.W).sum()
@@ -94,15 +108,6 @@ class MultiLayerPerceptron(object):
             (self.logRegressionLayer.W ** 2).sum()
         )
 
-        # negative log likelihood of MLP is given by the negative
-        # log likelihood of the output of the model, computed in the
-        # logistic regression layer
-        self.negative_log_likelihood = (
-            self.logRegressionLayer.negative_log_likelihood
-        )
-        # same holds for the function computing the number of errors
-        self.errors = self.logRegressionLayer.errors
-
         # the parameters of the model are the parameters of the two layer
         # it is made out of
         self.params = self.hiddenLayer.params + self.logRegressionLayer.params
@@ -110,8 +115,15 @@ class MultiLayerPerceptron(object):
         # keep track of model input
         self.X = X
 
+    def neg_log_like(self, y):
+        return self.logRegressionLayer.neg_log_like(y)
+
+    def errors(self, y):
+        return self.logRegressionLayer.errors(y)
+
 
 class AutoEncoder(object):
+
     def __init__(self, X, hidden_size, activation_function,
                  output_function):
 
@@ -182,6 +194,7 @@ class AutoEncoder(object):
 
 
 class DenoisyAutoEncoder(object):
+
     def __init__(self, rng=None, srgn=None, input=None, n_visible=784,
                  n_hidden=500, W=None, bhid=None, bvis=None):
         """

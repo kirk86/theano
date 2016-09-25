@@ -1,12 +1,6 @@
-import theano
-from theano import tensor as tt
-import numpy as np
 from loader import Loader
-from models import LogisticRegression
-from utils import Utils
 from trainer import Trainer
 
-floatX = theano.config.floatX
 
 # load = Loader('../media/datasets/')
 # trX, trY, teX, teY = load.stl10()
@@ -18,10 +12,11 @@ load = Loader('../media/datasets/')
 trX, trY, teX, teY = load.mnist()
 dataset = (trX, trY, teX, teY)
 trainer = Trainer(dataset)
-trainer.train_logistic_regression(trX.shape[1], 10)
+trainer.train_logistic_regression('randn', trX.shape[1], 10)
+# trainer.train_multilayer_perceptron('randn', trX.shape[1], 500, 10)
 
 
-# validX = trX[5000:15000, :]
+# validX = trXs[5000:15000, :]
 # validY = trY[5000:15000, :]
 # trX = np.delete(trX, range(5000, 15000), 0)
 # trY = np.delete(trY, range(5000, 15000), 0)
