@@ -10,6 +10,11 @@ import cPickle as pickle
 
 from models import LogisticRegression
 from models import MultiLayerPerceptron
+from models import AutoEncoder
+from utils import Utils
+
+rng = np.random.RandomState(123)
+srng = tt.shared_randomstreams.RandomStreams(np.random.randint(2 ** 30))
 
 
 class Trainer(object):
@@ -276,7 +281,25 @@ class Trainer(object):
 
         self.early_stopping(classifier, train, test, validate, predict)
 
-    def train_autoencoder(self, n_epochs, noise):
+    def train_autoencoder(self, distribution, fan_in, fan_out,
+                          learning_rate=0.01):
+        # allocate symbolic variables for the data
+        X = tt.fmatrix('X')  # the data is presented as rasterized images
+
+        autoEncoder = AutoEncoder(X, distribution, fan_in, fan_out,
+                                  n_hidden=500, activation=tt.nnet.sigmoid,
+                                  output=tt.nnet.sigmoid)
+
+        gparams = [tt.grad(cost=autoEncoder.cost, wrt=param)
+                   for param in autoEncoder.params]
+
+        updates = [(param, param - learning_rate * gparam)
+                   for param, gparam in zip(autoEncoder.params, gparams)]
+
+        train = theano.function(inputs=[X], outputs=autoEncoder.cost,
+                                updates=updates,
+                                allow_input_downcast=True)
+
         ############
         # TRAINING #
         ############
@@ -284,35 +307,40 @@ class Trainer(object):
         tic = timeit.default_timer()
 
         # go through training epochs
-        for epoch in range(training_epoch):
+        for epoch in range(self.n_epochs):
             # go through trainng set
-            cost_no_noise = []
-            for batch_index in range(n_train_batches):
-                cost_no_noise.append(train_dae(batch_index))
+            for batch_idx in range(0, self.n_train_batch, self.batch_size):
+                train_loss = train(self.trX[batch_idx: batch_idx + self.batch_size])
 
-            print("Training epoch {}, cost {} for clear  data"
-                  .format(epoch, np.mean(cost_no_noise)))
+            print("Training epoch {}, cost {}. %%"
+                  .format(epoch, train_loss))
 
         toc = timeit.default_timer()
-
         training_time = (toc - tic)
+        print("Average time per epoch = {}.%%".format(training_time))
 
-        print("The no corruption code for file {} ran for {:.2f}m"
-              .format(os.path.split("__file__")[1], (training_time / 60.)))
+        # plot encoding weights
+        weight = [param
+                  for param in autoEncoder.get_params()
+                  if param.shape >= 2]
+
+        util = Utils(None, None, None)
+        # util.plot_first_k_numbers(weight[0], 100)
+        # plot decoding weights
+        util.plot_first_k_numbers(np.transpose(weight[0]), 100)
 
         # start-snippet-4
-        image = Image.fromarray(
-            tile_raster_images(X=dae.W.get_value(borrow=True).T,
-                               img_shape=(28, 28), tile_shape=(10, 10),
-                               tile_spacing=(1, 1)))
-        image.save('filters_no_corruption.png')
-        # end-snippet-4
+        # image = Image.fromarray(
+        #     tile_raster_images(X=dae.W.get_value(borrow=True).T,
+        #                        img_shape=(28, 28), tile_shape=(10, 10),
+        #                        tile_spacing=(1, 1)))
+        # image.save('filters_no_corruption.png')
+        # # end-snippet-4
 
 
 # def test_dae():
 #     # allocate symbolic variables for the data
-      # index = tt.lscalar() # index to a [mini]batch
-#     x = tt.matrix('x')  # the data is presented as rasterized images
+#     X = tt.fmatrix('X')  # the data is presented as rasterized images
 
 #     rng  = np.random.RandomState(123)
 #     srgn = tt.shared_randomstreams.RandomStreams(np.random.randint(2 ** 30))
@@ -329,8 +357,7 @@ class Trainer(object):
 #     # BUILDING THE MODEL CORRUPTION 0% #
 #     #####################################
 
-#     dae = DAE(
-#         rng=rng,
+#     dae = DAE(rng=rng,
 #         srgn=srgn,
 #         input=x,
 #         n_visible=28 * 28,

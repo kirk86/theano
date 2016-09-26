@@ -48,3 +48,34 @@ class Utils(object):
             raise NotImplementedError("errors() function not " +
                                       "implemented because labels " +
                                       " y.dtype are not implemented")
+
+    def plot_first_k_numbers(self, W, k):
+        from matplotlib import pyplot
+        m = W.shape[0]
+        k = min(m, k)
+        j = int(round(k / 10.0))
+
+        fig, ax = pyplot.subplots(j, 10)
+
+        for i in range(k):
+
+            w = W[i, :]
+
+            w = w.reshape(28, 28)
+            ax[i/10, i % 10].imshow(w, cmap=pyplot.cm.gist_yarg,
+                                    interpolation='nearest', aspect='equal')
+
+            ax[i/10, i % 10].axis('off')
+
+        pyplot.tick_params(axis='x',  # changes apply to the x-axis
+                           which='both',  # both major and minor ticks affected
+                           bottom='off',  # ticks along the bottom edge are off
+                           top='off',  # ticks along the top edge are off
+                           labelbottom='off')
+        pyplot.tick_params(axis='y',  # changes apply to the x-axis
+                           which='both',  # both major and minor ticks affected
+                           left='off',
+                           right='off',  # ticks along the top edge are off
+                           labelleft='off')
+
+        fig.show()

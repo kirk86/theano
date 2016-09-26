@@ -20,3 +20,9 @@ trainer.train_logistic_regression('randn', 28*28, 10)
 ```
 trainer.train_multilayer_perceptron('randn', 28*28, 500, 10)
 ```
+
+### train autoencoder
+
+```
+trainer.train_autoencoder('randn', 28*28, 28*28)
+```

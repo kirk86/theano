@@ -81,6 +81,18 @@ class MultiLayerPerceptron(object):
 
     def __init__(self, X, distribution, fan_in, n_hidden, fan_out):
 
+        # h_outputs = []
+        # params = []
+        # hiddObjects = []
+        # for i in range(n_hidden):
+        #     if i == 0:
+        #         hiddObjects.append(HiddenLayer(X, distribution, fan_in,
+        #                                        fan_out=n_hidden))
+        #         h_outputs.append(self.hiddenLayer.h_output)
+        #         params.append(self.hiddenLayer.params)
+        #     else:
+        #         HiddenLayer(h_outputs[i-1], distribution, fan_in, fan_out)
+
         self.hiddenLayer = HiddenLayer(X, distribution, fan_in,
                                        fan_out=n_hidden)
 
@@ -124,73 +136,43 @@ class MultiLayerPerceptron(object):
 
 class AutoEncoder(object):
 
-    def __init__(self, X, hidden_size, activation_function,
-                 output_function):
+    def __init__(self, X, distribution, fan_in, fan_out, n_hidden,
+                 activation, output):
 
-        assert(len(X.get_value().shape) == 2)
-        self.X = X
-        self.m = X.get_value().shape[0]
-        self.n = X.get_value().shape[1]
-        self.output_function = output_function
-        self.activation_function = activation_function
+        self.output = output
+        self.activation = activation
         # Hidden_size is the number of neurons in the hidden layer, an int.
-        assert(type(hidden_size) is int)
-        assert(hidden_size > 0)
-        self.hidden_size = hidden_size
-        weights = Weights(
-            low=-4 * np.sqrt(6. / (self.hidden_size + self.n)),
-            high=4 * np.sqrt(6. / (self.hidden_size + self.n))
-        )
+        assert(type(n_hidden) is int)
+        assert(n_hidden > 0)
+        self.n_hidden = n_hidden
+        weight = Weights(distribution,
+                         low=-4 * np.sqrt(6. / (self.n_hidden + fan_out)),
+                         high=4 * np.sqrt(6. / (self.n_hidden + fan_out))
+                         )
 
-        self.W = weights.init_weights(fan_in=self.n,
-                                      fan_out=self.hidden_size,
-                                      name='AE.W')
+        self.W = weight.init_weights(fan_in,
+                                     fan_out=self.n_hidden,
+                                     name='AE.W')
 
-        self.b1 = weights.weights_init(fan_out=self.hidden_size, name='AE.b1')
-        self.b2 = weights.weights_init(fan_out=self.n, name='AE.b2')
+        self.b1 = weight.init_weights(None, self.n_hidden, name='AE.b1')
+        self.b2 = weight.init_weights(None, fan_out, name='AE.b2')
 
-    def train(self, n_epochs=100, mini_batch_size=1, learning_rate=0.1):
-        index = tt.lscalar()
-        x = tt.matrix('x')
-        params = [self.W, self.b1, self.b2]
-        hidden = self.activation_function(tt.dot(x, self.W) + self.b1)
-        output = tt.dot(hidden, tt.transpose(self.W)) + self.b2
-        output = self.output_function(output)
+        self.params = [self.W, self.b1, self.b2]
 
+        self.encode = self.activation(tt.dot(X, self.W) + self.b1)
+
+        self.decode = self.output(tt.dot(self.encode,
+                                         tt.transpose(self.W)) + self.b2)
         # Use cross-entropy loss.
-        cost = -tt.mean(x * tt.log(output) + (1-x) * tt.log(1-output), axis=1)
-
-        # Return gradient with respect to W, b1, b2.
-        updates = []
-        gparams = tt.grad(cost, params)
-
-        for param, gparam in zip(params, gparams):
-            updates.append((param, param-learning_rate * gparam))
-
-        # Train given a mini-batch of the data.
-        train = theano.function(inputs=[index],
-                                outputs=[cost],
-                                updates=updates,
-                                givens={x:
-                                        self.X[index: index +
-                                               mini_batch_size, :]})
-
-        tic = time.clock()
-        for epoch in xrange(n_epochs):
-            print "Epoch: ", epoch
-            for row in xrange(0, self.m, mini_batch_size):
-                train(row)
-        toc = time.clock()
-        print "Average time per epoch=", (toc - tic)/n_epochs
+        self.cost = -tt.mean(X * tt.log(self.decode) + (1-X) * tt.log(1-self.decode))
 
     def get_hidden(self, data):
-        x = tt.fmatrix('x')
-        hidden = self.activation_function(tt.dot(x, self.W) + self.b1)
-        transformed_data = theano.function(inputs=[x], outputs=[hidden])
-        return transformed_data(data)
+        X = tt.fmatrix('X')
+        return theano.function(inputs=[X], outputs=[self.encode],
+                               allow_input_downcast=True)
 
-    def get_weights(self):
-        return [self.W.get_value(), self.b1.get_value(), self.b2.get_value()]
+    def get_params(self):
+        return [param.get_value() for param in self.params]
 
 
 class DenoisyAutoEncoder(object):
