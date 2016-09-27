@@ -180,46 +180,36 @@ class DenoisyAutoEncoder(object):
     def __init__(self, rng=None, srgn=None, input=None, n_visible=784,
                  n_hidden=500, W=None, bhid=None, bvis=None):
         """
-        Initialize the dA class by specifying:
         number of visible units (the dimension d of the input ),
         number of hidden units ( the dimension d' of latent/hidden space )
         corruption level.
         Such symbolic variables are useful when,
-        for example the input is the result of some computations, or
-        when weights are shared between the dA and an MLP layer. When
-        dealing with SdAs this always happens,
-        the dA on layer 2 gets as input the output of the dA on layer 1,
+        the input is the result of some computations, or
+        when weights are shared between the dA and an MLP layer.
+        The dA on layer 2 gets as input the output of the dA on layer 1,
         and the weights of the dA are used in the second stage of training
         to construct an MLP.
 
-        :type rng: np.random.RandomState
         :param rng: number random generator used to generate weights
 
-        :type srgn: theano.tensor.shared_randomstreams.RandomStreams
         :param srgn: Theano random generator; if None is given one is
                      generated based on a seed drawn from `rng`
 
-        :type input: theano.tensor.TensorType
         :param input: a symbolic description of the input or None for
                       standalone dA
 
-        :type n_visible: int
         :param n_visible: number of visible units
 
-        :type n_hidden: int
         :param n_hidden:  number of hidden units
 
-        :type W: theano.tensor.TensorType
         :param W: Theano variable pointing to a set of weights that should be
                   shared belong the dA and another architecture; if dA should
                   be standalone set this to None
 
-        :type bhid: theano.tensor.TensorType
         :param bhid: Theano variable pointing to a set of biases values (for
                      hidden units) that should be shared belong dA and another
                      architecture; if dA should be standalone set this to None
 
-        :type bvis: theano.tensor.TensorType
         :param bvis: Theano variable pointing to a set of biases values (for
                      visible units) that should be shared belong dA and another
                      architecture; if dA should be standalone set this to None
@@ -232,19 +222,21 @@ class DenoisyAutoEncoder(object):
 
         # note : W' was written as `W_prime` and b' as `b_prime`
         if not W:
-            weights = Weights(
-                low=-4 * np.sqrt(6. / (n_hidden + n_visible)),
-                high=4 * np.sqrt(6. / (n_hidden + n_visible))
-                )
+            weights = Weights('randn',
+                              low=-4 * np.sqrt(6. / (n_hidden + n_visible)),
+                              high=4 * np.sqrt(6. / (n_hidden + n_visible))
+                              )
 
             W = weights.init_weights(fan_in=n_visible,
                                      fan_out=n_hidden, name='DAE.W')
 
         if not bvis:
-            bvis = weights.init_weights(fan_out=n_visible, name='DAE.bvis')
+            bvis = weights.init_weights(None, fan_out=n_visible,
+                                        name='DAE.bvis')
 
         if not bhid:
-            bhid = weights.init_weights(fan_out=n_hidden, name='DAE.bhid')
+            bhid = weights.init_weights(None, fan_out=n_hidden,
+                                        name='DAE.bhid')
 
         self.W = W
         # b corresponds to the bias of the hidden
