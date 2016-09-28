@@ -476,41 +476,32 @@ class ContractiveAutoEncoder(object):
 
 
 class StackedDenoisyAutoEncoder(object):
-    """Stacked denoising auto-encoder class (SdA)
+    """Stacked denoising auto-encoder
     obtained stacking several dAs. The hidden layer of the dA at
     layer `i` becomes the input of the dA at layer `i+1`.
-    The first layer dA gets as input is the input
+    The first layer of dA gets as input the input
     of the SdA, and the hidden layer of the last dA represents the output.
     After pretraining, the SdA is dealt as a normal MLP, the dAs are
     only used to initialize the weights.
     """
 
-    def __init__(self, rng, srgn=None, n_ins=784,
-                 hidden_layer_sizes=[500, 500], n_outs=10,
+    def __init__(self, X, y, distribution, fan_in=784, fan_out=10,
+                 n_hidden_sizes=[500, 500],
                  noise_levels=[0.1, 0.1]):
         """
-        :param n_ins: dimension of the input to the sdA
-        :param hidden_layers_sizes: intermediate layers size, must contain
+        :n_ins: dimension of the input to the sdA
+        :hidden_layers_sizes: intermediate layers size, must contain
                                at least one value
-        :param n_outs: dimension of the output of the network
-        :param noise_levels: amount of corruption to use for each
+        :n_outs: dimension of the output of the network
+        :noise_levels: amount of corruption to use for each
                                   layer
         """
 
-        self.params = []
-        self.n_layers = len(hidden_layer_sizes)
+        self.n_layers = len(n_hidden_sizes)
         self.sigmoid_layers = []
         self.dA_layers = []
-
+        self.params = []
         assert self.n_layers > 0
-
-        if not srgn:
-            srgn = RandomStreams(rng.randint(2 ** 30))
-        # allocate symbolic variables for the data
-        self.x = tt.fmatrix('x')  # the data is presented as rasterized images
-        self.y = tt.ivector('y')  # the labels are presented as 1D vector of
-                                  # [int] labels
-        # end-snippet-1
 
         # The SdA is an MLP, for which all weights of intermediate layers
         # are shared with a different denoising autoencoders
@@ -522,29 +513,27 @@ class StackedDenoisyAutoEncoder(object):
         # During finetunining we will finish training the SdA by doing
         # stochastich gradient descent on the MLP
 
-        # start-snippet-2
         for i in range(self.n_layers):
             # construct the sigmoidal layer
 
             # the size of the input is either the number of hidden units of
             # the layer below or the input size if we are on the first layer
             if i == 0:
-                input_size = n_ins
+                input_size = fan_in
             else:
-                input_size = hidden_layer_sizes[i - 1]
+                input_size = n_hidden_sizes[i - 1]
 
             # the input to this layer is either the activation of the hidden
             # layer below or the input of the SdA if you are on the first
             # layer
             if i == 0:
-                layer_input = self.x
+                input_layer = X
             else:
-                layer_input = self.sigmoid_layers[-1].output
+                input_layer = self.sigmoid_layers[-1].output
 
-            sigmoid_layer = HiddenLayer(rng=rng,
-                                        input=layer_input,
-                                        n_in=input_size,
-                                        n_out=hidden_layer_sizes[i],
+            sigmoid_layer = HiddenLayer(input_layer, distribution,
+                                        fan_in=input_size,
+                                        fan_out=n_hidden_sizes[i],
                                         activation=tt.nnet.sigmoid)
             # add the layer to our list of layers
             self.sigmoid_layers.append(sigmoid_layer)
@@ -557,33 +546,29 @@ class StackedDenoisyAutoEncoder(object):
 
             # Construct a denoising autoencoder that shared weights with this
             # layer
-            dA_layer = DenoisyAutoEncoder(rng=rng,
-                                          srgn=srgn,
-                                          input=layer_input,
+            dA_layer = DenoisyAutoEncoder(input_layer, distribution,
                                           n_visible=input_size,
-                                          n_hidden=hidden_layer_sizes[i],
+                                          n_hidden=n_hidden_sizes[i],
                                           W=sigmoid_layer.W,
                                           bhid=sigmoid_layer.b)
 
             self.dA_layers.append(dA_layer)
         # end-snippet-2
         # We now need to add a logistic layer on top of the MLP
-        self.logLayer = LogisticRegression(
-            input=self.sigmoid_layers[-1].output,
-            n_in=hidden_layer_sizes[-1],
-            n_out=n_outs
-        )
+        self.logisticLayer = LogisticRegression(self.sigmoid_layers[-1].output,
+                                                fan_in=n_hidden_sizes[-1],
+                                                fan_out=fan_out)
 
-        self.params.extend(self.logLayer.params)
+        self.params.extend(self.logisticLayer.params)
         # construct a function that implements one step of finetunining
 
         # compute the cost for second phase of training,
         # defined as the negative log likelihood
-        self.finetune_cost = self.logLayer.negative_log_likelihood(self.y)
+        self.finetune_cost = self.logisticLayer.neg_log_like(y)
         # compute the gradients wrt the model parameters
         # symbolic variable, points to the number of errors made on the
         # minibatch, given by self.x and self.y
-        self.errors = self.logLayer.errors(self.y)
+        self.errors = self.logisticLayer.errors(y)
 
     def pretraining_functions(self, train_set_x, batch_size):
         ''' Generates a list of functions, each of them implementing one
