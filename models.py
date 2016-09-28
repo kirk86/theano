@@ -3,7 +3,6 @@ from theano import tensor as tt
 from theano.tensor.shared_randomstreams import RandomStreams
 
 import numpy as np
-import time
 
 from utils import Utils
 from regularizer import Regularizer
@@ -11,6 +10,7 @@ from regularizer import Regularizer
 floatX = theano.config.floatX
 rng = np.random.RandomState(123)
 srng = RandomStreams(123)
+# srng = tt.shared_randomstreams.RandomStreams(rng.randint(2 ** 30))
 
 
 class LogisticRegression(object):
@@ -177,14 +177,13 @@ class AutoEncoder(object):
 
 class DenoisyAutoEncoder(object):
 
-    def __init__(self, rng=None, srgn=None, input=None, n_visible=784,
-                 n_hidden=500, W=None, bhid=None, bvis=None):
+    def __init__(self, X, distribution, n_visible=784, n_hidden=500,
+                 W=None, bhid=None, bvis=None):
         """
-        number of visible units (the dimension d of the input ),
-        number of hidden units ( the dimension d' of latent/hidden space )
+        number of visible units (dimension d of input),
+        number of hidden units (dimension d' of latent/hidden space)
         corruption level.
-        Such symbolic variables are useful when,
-        the input is the result of some computations, or
+        useful when the input is the result of some computations, or
         when weights are shared between the dA and an MLP layer.
         The dA on layer 2 gets as input the output of the dA on layer 1,
         and the weights of the dA are used in the second stage of training
@@ -214,29 +213,27 @@ class DenoisyAutoEncoder(object):
                      visible units) that should be shared belong dA and another
                      architecture; if dA should be standalone set this to None
         """
+        self.X = X
         self.n_visible = n_visible
         self.n_hidden = n_hidden
 
-        if not srgn:
-            srgn = tt.shared_randomstreams.RandomStreams(rng.randint(2 ** 30))
-
         # note : W' was written as `W_prime` and b' as `b_prime`
         if not W:
-            weights = Weights('randn',
-                              low=-4 * np.sqrt(6. / (n_hidden + n_visible)),
-                              high=4 * np.sqrt(6. / (n_hidden + n_visible))
-                              )
+            weight = Weights('randn',
+                             low=-4 * np.sqrt(6. / (n_hidden + n_visible)),
+                             high=4 * np.sqrt(6. / (n_hidden + n_visible))
+                             )
 
-            W = weights.init_weights(fan_in=n_visible,
-                                     fan_out=n_hidden, name='DAE.W')
+            W = weight.init_weights(fan_in=n_visible,
+                                    fan_out=n_hidden, name='DAE.W')
 
         if not bvis:
-            bvis = weights.init_weights(None, fan_out=n_visible,
-                                        name='DAE.bvis')
+            bvis = weight.init_weights(None, fan_out=n_visible,
+                                       name='DAE.bvis')
 
         if not bhid:
-            bhid = weights.init_weights(None, fan_out=n_hidden,
-                                        name='DAE.bhid')
+            bhid = weight.init_weights(None, fan_out=n_hidden,
+                                       name='DAE.bhid')
 
         self.W = W
         # b corresponds to the bias of the hidden
@@ -245,7 +242,6 @@ class DenoisyAutoEncoder(object):
         self.b_prime = bvis
         # tied weights, therefore W_prime is W transpose
         self.W_prime = self.W.T
-        self.srgn = srgn
         # if no input is given, generate a variable representing the input
         if input is None:
             # we use a matrix because we expect a minibatch of several
@@ -262,13 +258,11 @@ class DenoisyAutoEncoder(object):
         return tt.nnet.sigmoid(tt.dot(input, self.W) + self.b)
 
     def get_reconstructed_input(self, hidden):
-        """computes reconstructed input given the values of the
-        hidden layer
-        """
+        """computes reconstructed input given values of hidden layer"""
         return tt.nnet.sigmoid(tt.dot(hidden, self.W_prime) + self.b_prime)
 
     def get_corrupted_input(self, input, corruption_level):
-            """This function keeps ``1-corruption_level`` entries of
+        """This function keeps ``1-corruption_level`` entries of
             the inputs the same and zero-out randomly selected subset
             of size ``coruption_level``
             Note : first argument of theano.rng.binomial is the shape(size) of
@@ -290,31 +284,32 @@ class DenoisyAutoEncoder(object):
                     correctly as it only support float32 for now.
 
             """
-            return self.srgn.binomial(size=input.shape,
-                                      n=1,
-                                      p=1 - corruption_level,
-                                      dtype=floatX) * input
+        return srng.binomial(size=self.X.shape,
+                             n=1,
+                             p=1 - corruption_level,
+                             dtype=floatX) * self.X
 
     def get_cost_updates(self, corruption_level, learning_rate):
         """computes cost and updates for one trainng step of dA """
 
-        tilde_x = self.get_corrupted_input(self.x, corruption_level)
-        y = self.get_hidden_values(tilde_x)
+        tilde_X = self.get_corrupted_input(self.X, corruption_level)
+        y = self.get_hidden_values(tilde_X)
         z = self.get_reconstructed_input(y)
         # note : we sum over the size of a datapoint; if we are using
         #        minibatches, L will be a vector, with one entry per
         #        example in minibatch
-        L = - tt.sum(self.x * tt.log(z) + (1 - self.x) * tt.log(1 - z), axis=1)
+        L = - tt.sum(self.X * tt.log(z) + (1 - self.X) * tt.log(1 - z), axis=1)
         # note : L is now a vector, where each element is the
         #        cross-entropy cost of the reconstruction of the
         #        corresponding example of the minibatch. We need to
         #        compute the average of all these to get the cost of
         #        the minibatch
         cost = tt.mean(L)
+        # cost = tt.mean(self.X * tt.log(z) + (1 - self.X) * tt.log(1- z), axis=1)
 
         # compute the gradients of the cost of the `dA` with respect
         # to its parameters
-        gparams = tt.grad(cost, self.params)
+        gparams = tt.grad(cost=cost, wrt=self.params)
         updates = [(param, param - learning_rate * gparam)
                    for param, gparam in zip(self.params, gparams)]
 

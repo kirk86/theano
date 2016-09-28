@@ -11,6 +11,7 @@ import cPickle as pickle
 from models import LogisticRegression
 from models import MultiLayerPerceptron
 from models import AutoEncoder
+from models import DenoisyAutoEncoder
 from utils import Utils
 
 rng = np.random.RandomState(123)
@@ -19,7 +20,7 @@ srng = tt.shared_randomstreams.RandomStreams(np.random.randint(2 ** 30))
 
 class Trainer(object):
 
-    def __init__(self, dataset, n_epochs=1000, batch_size=256, n_valid=10000):
+    def __init__(self, dataset, n_epochs=50, batch_size=256, n_valid=10000):
         self.trX, self.trY, self.teX, self.teY = dataset
         self.n_epochs = n_epochs
         self.batch_size = batch_size
@@ -313,7 +314,7 @@ class Trainer(object):
                 train_loss = train(self.trX[batch_idx: batch_idx + self.batch_size])
 
             print("Training epoch {}, cost {}. %%"
-                  .format(epoch, train_loss))
+                  .format(epoch + 1, train_loss))
 
         toc = timeit.default_timer()
         training_time = (toc - tic)
@@ -337,127 +338,94 @@ class Trainer(object):
         # image.save('filters_no_corruption.png')
         # # end-snippet-4
 
+    def train_denoisy_autoencoder(self, distribution, n_visible, n_hidden):
 
-# def test_dae():
-#     # allocate symbolic variables for the data
-#     X = tt.fmatrix('X')  # the data is presented as rasterized images
+        X = tt.fmatrix('X')  # the data is presented as rasterized images
 
-#     rng  = np.random.RandomState(123)
-#     srgn = tt.shared_randomstreams.RandomStreams(np.random.randint(2 ** 30))
+        #####################################
+        # BUILDING THE MODEL CORRUPTION 0% #
+        #####################################
 
-#     data = load_data('mnist')
-#     trX, trY = data[0]
-#     batch_size = 20
-#     training_epoch = 15
-#     learning_rate = 0.1
-#     n_train_batches = trX.get_value(borrow=True).shape[0] // batch_size
+        dae = DenoisyAutoEncoder(X, distribution, n_visible, n_hidden)
 
-#     # start-snippet-2
-#     #####################################
-#     # BUILDING THE MODEL CORRUPTION 0% #
-#     #####################################
+        cost, updates = dae.get_cost_updates(0., 0.01)
 
-#     dae = DAE(rng=rng,
-#         srgn=srgn,
-#         input=x,
-#         n_visible=28 * 28,
-#         n_hidden=500
-#     )
+        train = theano.function([X], cost, updates=updates,
+                                allow_input_downcast=True)
 
-#     cost, updates = dae.get_cost_updates(
-#                 corruption_level=0.,
-#                 learning_rate=0.01
-#     )
+        ############
+        # TRAINING #
+        ############
 
-#     train_dae = theano.function([index], cost, updates=updates,
-#             givens={x: trX[index * batch_size: (index + 1) * batch_size]}
-#     )
+        tic = timeit.default_timer()
 
-#     ############
-#     # TRAINING #
-#     ############
+        # go through training epochs
+        for epoch in range(self.n_epochs):
+            # go through trainng set
+            cost_noiseless = []
+            for batch_idx in range(self.n_train_batch):
+                cost_noiseless.append(
+                    train(self.trX[batch_idx * self.batch_size:
+                                   (batch_idx + 1) * self.batch_size])
+                )
 
-#     tic = timeit.default_timer()
+            print("Training epoch {}, cost for clear data {} %"
+                  .format(epoch + 1, np.mean(cost_noiseless)))
 
-#     # go through training epochs
-#     for epoch in range(training_epoch):
-#         # go through trainng set
-#         cost_no_noise = []
-#         for batch_index in range(n_train_batches):
-#             cost_no_noise.append(train_dae(batch_index))
+        toc = timeit.default_timer()
 
-#         print('Training epoch %d, cost for clear data' % epoch, np.mean(cost_no_noise))
+        train_duration = (toc - tic)
 
-#     toc = timeit.default_timer()
+        print("The no corruption code for file {} ran for {:.2f}m %"
+              .format(inspect.getfile(inspect.currentframe()),
+                      (train_duration / 60.)))
 
-#     training_time = (toc - tic)
+        # image = Image.fromarray(
+        # tile_raster_images(X=dae.W.get_value(borrow=True).T,
+        #     img_shape=(28, 28), tile_shape=(10, 10),
+        #     tile_spacing=(1, 1)))
+        # image.save('filters_no_corruption.png')
 
-#     print(('The no corruption code for file ' +
-#            os.path.split(__file__)[1] +
-#            ' ran for %.2fm' % (training_time / 60.)))
+        #####################################
+        # BUILDING THE MODEL CORRUPTION 30% #
+        #####################################
 
-#     # start-snippet-4
-#     image = Image.fromarray(
-#     tile_raster_images(X=dae.W.get_value(borrow=True).T,
-#         img_shape=(28, 28), tile_shape=(10, 10),
-#         tile_spacing=(1, 1)))
-#     image.save('filters_no_corruption.png')
-#     # end-snippet-4
+        dae_noisy = DenoisyAutoEncoder(X, distribution, n_visible, n_hidden)
 
+        cost_noisy, updates_noisy = dae_noisy.get_cost_updates(0.3, 0.01)
 
-#     # start-snippet-3
-#     #####################################
-#     # BUILDING THE MODEL CORRUPTION 30% #
-#     #####################################
+        train_noisy = theano.function([X], cost_noisy, updates=updates_noisy,
+                                      allow_input_downcast=True)
 
-#     dae_noise = DAE(
-#         rng=rng,
-#         srgn=srgn,
-#         input=x,
-#         n_visible=28 * 28,
-#         n_hidden=500
-#     )
+        ############
+        # TRAINING #
+        ############
 
-#     cost_noise, updates_noise = dae_noise.get_cost_updates(
-#         corruption_level=0.3,
-#         learning_rate=0.01
-#     )
+        tic = timeit.default_timer()
 
-#     train_noise_dae = theano.function([index], cost_noise, updates=updates_noise,
-#         givens={x: trX[index * batch_size: (index + 1) * batch_size]}
-#     )
+        # go through training epochs
+        for epoch in range(self.n_epochs):
+            # go through trainng set
+            cost_noisy = []
+            for batch_idx in range(self.n_train_batch):
+                cost_noisy.append(
+                    train_noisy(self.trX[batch_idx * self.batch_size:
+                                         (batch_idx + 1) * self.batch_size])
+                )
 
-#     ############
-#     # TRAINING #
-#     ############
+            print("Training epoch {}, cost for noisy data {} %"
+                  .format(epoch + 1, np.mean(cost_noisy)))
 
-#     tic = timeit.default_timer()
+        toc = timeit.default_timer()
 
-#     # go through training epochs
-#     for epoch in range(training_epoch):
-#         # go through trainng set
-#         cost_noise = []
-#         for batch_index in range(n_train_batches):
-#             cost_noise.append(train_dae(batch_index))
+        train_duration = (toc - tic)
 
-#         print('Training epoch %d, cost for clear data' % epoch, np.mean(cost_noise))
+        print("The 30% corruption code for file {}, ran for {:.2f}m %"
+              .format(inspect.getfile(inspect.currentframe()),
+                      (train_duration / 60.)))
 
-#     toc = timeit.default_timer()
-
-#     training_time = (toc - tic)
-
-#     print(('The 30% corruption code for file ' +
-#            os.path.split(__file__)[1] +
-#            ' ran for %.2fm' % (training_time / 60.)))
-
-#     # start-snippet-4
-#     image = Image.fromarray(
-#     tile_raster_images(X=dae_noise.W.get_value(borrow=True).T,
-#         img_shape=(28, 28), tile_shape=(10, 10),
-#         tile_spacing=(1, 1)))
-#     image.save('filters_corruption_30.png')
-#     # end-snippet-4
-
-
-# if __name__ == '__main__':
-#     test_dae()
+        # image = Image.fromarray(
+        # tile_raster_images(X=dae_noise.W.get_value(borrow=True).T,
+        #     img_shape=(28, 28), tile_shape=(10, 10),
+        #     tile_spacing=(1, 1)))
+        # image.save('filters_corruption_30.png')

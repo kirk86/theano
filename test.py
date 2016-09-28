@@ -14,7 +14,8 @@ dataset = (trX, trY, teX, teY)
 trainer = Trainer(dataset)
 # trainer.train_logistic_regression('randn', trX.shape[1], 784,)
 # trainer.train_multilayer_perceptron('randn', trX.shape[1], 500, 10)
-trainer.train_autoencoder('randn', trX.shape[1], 784)
+# trainer.train_autoencoder('randn', trX.shape[1], 784)
+trainer.train_denoisy_autoencoder('randn', trX.shape[1], 500)
 
 
 # validX = trXs[5000:15000, :]

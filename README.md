@@ -26,3 +26,9 @@ trainer.train_multilayer_perceptron('randn', 28*28, 500, 10)
 ```
 trainer.train_autoencoder('randn', 28*28, 28*28)
 ```
+
+### train denoisy autoencoder
+
+```
+trainer.train_denoisy_autoencoder('randn', n_visible=28*28, n_hidden=500)
+```
