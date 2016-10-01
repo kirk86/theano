@@ -1,6 +1,6 @@
 ## theano models
 
-### training logistic regression
+### load and prepare the dataset
 
 ```
 from loader import Loader
@@ -11,7 +11,12 @@ load = Loader('/path/to/dataset/mnist')
 trX, trY, teX, teY = load.mnist()
 dataset = (trX, trY, teX, teY)
 trainer = Trainer(dataset)
+```
 
+### training logistic regression
+
+
+```
 trainer.train_logistic_regression('randn', 28*28, 10)
 ```
 

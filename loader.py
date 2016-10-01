@@ -101,10 +101,7 @@ class Loader(object):
 
         return trX, trY, teX, teY
 
-    def cifar100(self):
-        pass
-
-    def stl10(self):
+    def stl10(self, onehot=True):
         # image shape
         HEIGHT = 96
         WIDTH = 96
@@ -141,14 +138,20 @@ class Loader(object):
         # test to check if the whole dataset is read correctly
         trX = self.read_all_images(TRAIN_DATA)
         trY = self.read_labels(TRAIN_LABEL)
+        trY -= np.min(trY)
 
         teX = self.read_all_images(TEST_DATA)
         teY = self.read_labels(TEST_LABEL)
+        teY -= np.min(teY)
 
         unlabeled = self.read_all_images(UNLABELED)
 
         trX = trX/255.
         teX = teX/255.
+
+        if onehot:
+            trY = self.one_hot(trY, 10)
+            teY = self.one_hot(teY, 10)
 
         return trX, trY, teX, teY, unlabeled
 
@@ -180,7 +183,12 @@ class Loader(object):
             # on the input file, and this way numpy determines
             # the size on its own.
 
-            images = np.reshape(everything, (-1, 3, 96, 96))
+            images = np.reshape(everything, (-1, 96, 96, 3))
+
+            for idx, image in zip(range(len(images)), images):
+                images[idx] = np.rot90(image, 3)
+
+            images = np.reshape(images, (-1, 3, 96, 96)).astype(dtype=floatX)
 
             # Now transpose the images into a standard image
             # format readable by, for example, matplotlib.imshow

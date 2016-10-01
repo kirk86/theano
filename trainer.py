@@ -460,14 +460,14 @@ class Trainer(object):
             fcn = theano.function(inputs=[X,
                                          theano.In(corruption_level, value=0.2),
                                          theano.In(learning_rate, value=0.1)],
-                                 outputs=cost,
+                                  outputs=cost,
                                   updates=updates, allow_input_downcast=True)
             pretrain_fcns.append(fcn)
 
         print('... pre-training the model')
         tic = timeit.default_timer()
         # Pre-train layer-wise
-        corruption_levels = [.1, .2, .3]
+        noise_levels = [.1, .2, .3]
         for i in range(sda.n_layers):
             # go through pretraining epochs
             for epoch in range(pretraining_epochs):
