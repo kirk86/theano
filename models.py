@@ -63,7 +63,7 @@ class HiddenLayer(object):
                 W.set_value(W.get_value() * 4)
 
         if b is None:
-            b = self.weight.init_weights(fan_out=fan_out, name='hidden.b')
+            b = self.weight.init_weights(None, fan_out=fan_out, name='hidden.b')
 
         self.W = W
         self.b = b
@@ -189,11 +189,6 @@ class DenoisyAutoEncoder(object):
         and the weights of the dA are used in the second stage of training
         to construct an MLP.
 
-        :param rng: number random generator used to generate weights
-
-        :param srgn: Theano random generator; if None is given one is
-                     generated based on a seed drawn from `rng`
-
         :param input: a symbolic description of the input or None for
                       standalone dA
 
@@ -218,12 +213,11 @@ class DenoisyAutoEncoder(object):
         self.n_hidden = n_hidden
 
         # note : W' was written as `W_prime` and b' as `b_prime`
+        weight = Weights('randn',
+                         low=-4 * np.sqrt(6. / (n_hidden + n_visible)),
+                         high=4 * np.sqrt(6. / (n_hidden + n_visible))
+                         )
         if not W:
-            weight = Weights('randn',
-                             low=-4 * np.sqrt(6. / (n_hidden + n_visible)),
-                             high=4 * np.sqrt(6. / (n_hidden + n_visible))
-                             )
-
             W = weight.init_weights(fan_in=n_visible,
                                     fan_out=n_hidden, name='DAE.W')
 
@@ -485,8 +479,8 @@ class StackedDenoisyAutoEncoder(object):
     only used to initialize the weights.
     """
 
-    def __init__(self, X, y, distribution, fan_in=784, fan_out=10,
-                 n_hidden_sizes=[500, 500],
+    def __init__(self, distribution, fan_in=784,
+                 n_hidden_sizes=[500, 500], fan_out=10,
                  noise_levels=[0.1, 0.1]):
         """
         :n_ins: dimension of the input to the sdA
@@ -497,6 +491,8 @@ class StackedDenoisyAutoEncoder(object):
                                   layer
         """
 
+        self.X = tt.fmatrix('X')
+        self.y = tt.fmatrix('y')
         self.n_layers = len(n_hidden_sizes)
         self.sigmoid_layers = []
         self.dA_layers = []
@@ -527,7 +523,7 @@ class StackedDenoisyAutoEncoder(object):
             # layer below or the input of the SdA if you are on the first
             # layer
             if i == 0:
-                input_layer = X
+                input_layer = self.X
             else:
                 input_layer = self.sigmoid_layers[-1].output
 
@@ -547,15 +543,16 @@ class StackedDenoisyAutoEncoder(object):
             # Construct a denoising autoencoder that shared weights with this
             # layer
             dA_layer = DenoisyAutoEncoder(input_layer, distribution,
-                                          n_visible=input_size,
-                                          n_hidden=n_hidden_sizes[i],
-                                          W=sigmoid_layer.W,
-                                          bhid=sigmoid_layer.b)
+                                          input_size,
+                                          n_hidden_sizes[i],
+                                          sigmoid_layer.W,
+                                          sigmoid_layer.b)
 
             self.dA_layers.append(dA_layer)
         # end-snippet-2
         # We now need to add a logistic layer on top of the MLP
         self.logisticLayer = LogisticRegression(self.sigmoid_layers[-1].output,
+                                                distribution,
                                                 fan_in=n_hidden_sizes[-1],
                                                 fan_out=fan_out)
 
@@ -564,39 +561,35 @@ class StackedDenoisyAutoEncoder(object):
 
         # compute the cost for second phase of training,
         # defined as the negative log likelihood
-        self.finetune_cost = self.logisticLayer.neg_log_like(y)
+        self.finetune_cost = self.logisticLayer.neg_log_like(self.y)
         # compute the gradients wrt the model parameters
         # symbolic variable, points to the number of errors made on the
         # minibatch, given by self.x and self.y
-        self.errors = self.logisticLayer.errors(y)
+        self.errors = self.logisticLayer.errors(self.y)
 
-    def pretraining_functions(self, train_set_x, batch_size):
+    def pretrain_fcns(self, minibatch_idx, trX, batch_size):
         ''' Generates a list of functions, each of them implementing one
         step in trainnig the dA corresponding to the layer with same index.
         The function will require as input the minibatch index, and to train
         a dA you just need to iterate, calling the corresponding function on
         all minibatch indexes.
 
-        :type train_set_x: theano.tensor.TensorType
         :param train_set_x: Shared variable that contains all datapoints used
                             for training the dA
 
-        :type batch_size: int
         :param batch_size: size of a [mini]batch
 
-        :type learning_rate: float
         :param learning_rate: learning rate used during training for any of
                               the dA layers
         '''
 
         # index to a [mini]batch
-        index = tt.lscalar('index')  # index to a minibatch
         noise_level = tt.scalar('corruption')  # % of corruption to use
         learning_rate = tt.scalar('lr')  # learning rate to use
         # begining of a batch, given `index`
-        batch_begin = index * batch_size
+        batch_start = minibatch_idx * batch_size
         # ending of a batch given `index`
-        batch_end = batch_begin + batch_size
+        batch_end = batch_start + batch_size
 
         pretrain_fns = []
         for dA in self.dA_layers:
@@ -604,52 +597,40 @@ class StackedDenoisyAutoEncoder(object):
             cost, updates = dA.get_cost_updates(noise_level,
                                                 learning_rate)
             # compile the theano function
-            fn = theano.function(inputs=[index,
+            fn = theano.function(inputs=[self.X[batch_start: batch_end],
                                          theano.In(noise_level, value=0.2),
                                          theano.In(learning_rate, value=0.1)],
                                  outputs=cost,
                                  updates=updates,
-                                 givens={
-                                     self.x:
-                                     train_set_x[batch_begin: batch_end]
-                                 }
-                            )
+                                 )
             # append `fn` to the list of functions
             pretrain_fns.append(fn)
 
         return pretrain_fns
 
-    def build_finetune_functions(self, datasets, batch_size, learning_rate):
+    def finetune_fcns(self, dataset, batch_size, learning_rate,
+                      n_valid_batch, n_test_batch):
         '''Generates a function `train` that implements one step of
         finetuning, a function `validate` that computes the error on
         a batch from the validation set, and a function `test` that
         computes the error on a batch from the testing set
 
-        :type datasets: list of pairs of theano.tensor.TensorType
         :param datasets: It is a list that contain all the datasets;
                          has to contain three pairs, `train`,
                          `valid`, `test` in this order, where each pair
                          is formed of two Theano variables, one for the
                          datapoints, the other for the labels
 
-        :type batch_size: int
         :param batch_size: size of a minibatch
 
-        :type learning_rate: float
         :param learning_rate: learning rate used during finetune stage
         '''
 
-        (train_set_x, train_set_y) = datasets[0]
-        (valid_set_x, valid_set_y) = datasets[1]
-        (test_set_x, test_set_y) = datasets[2]
+        trX, trY = dataset[0]
+        valX, valY = dataset[1]
+        teX, teY = dataset[2]
 
         # compute number of minibatches for training, validation and testing
-        n_valid_batches = valid_set_x.get_value(borrow=True).shape[0]
-        n_valid_batches //= batch_size
-        n_test_batches = test_set_x.get_value(borrow=True).shape[0]
-        n_test_batches //= batch_size
-
-        index = tt.lscalar('index')  # index to a [mini]batch
 
         # compute the gradients with respect to the model parameters
         gparams = tt.grad(self.finetune_cost, self.params)
@@ -658,56 +639,34 @@ class StackedDenoisyAutoEncoder(object):
         updates = [(param, param - gparam * learning_rate)
                    for param, gparam in zip(self.params, gparams)]
 
-        train_fn = theano.function(inputs=[index], outputs=self.finetune_cost,
-                                   updates=updates,
-                                   givens={
-                                       self.x:
-                                       train_set_x[
-                                           index * batch_size:
-                                           (index + 1) * batch_size
-                                           ],
-                                       self.y: train_set_y[
-                                           index * batch_size:
-                                           (index + 1) * batch_size
-                                           ]
-                                    }, name='train'
-                                )
+        train = theano.function(inputs=[self.X, self.y],
+                                outputs=self.finetune_cost,
+                                updates=updates,
+                                name='train')
 
-        test_score_i = theano.function([index], self.errors,
-                                       givens={
-                                           self.x: test_set_x[
-                                               index * batch_size:
-                                               (index + 1) * batch_size
-                                               ],
-                                           self.y: test_set_y[
-                                               index * batch_size:
-                                               (index + 1) * batch_size
-                                               ]
-                                           }, name='test'
-                                    )
+        test = theano.function([self.X, self.y], self.errors,
+                               name='test')
 
-        valid_score_i = theano.function([index], self.errors,
-                                        givens={
-                                            self.x: valid_set_x[
-                                                index * batch_size:
-                                                (index + 1) * batch_size
-                                                ],
-                                            self.y: valid_set_y[
-                                                index * batch_size:
-                                                (index + 1) * batch_size
-                                                ]
-                                            }, name='valid'
-                                    )
+        valid = theano.function([self.X, self.y], self.errors,
+                                name='valid')
 
         # Create a function that scans the entire validation set
         def valid_score():
-            return [valid_score_i(i) for i in range(n_valid_batches)]
+            return [valid(trX[i * self.batch_size:
+                              (i + 1) * self.batch_size],
+                          trY[i * self.batch_size:
+                              (i + 1) * self.batch_size])
+                    for i in range(self.n_valid_batch)]
 
         # Create a function that scans the entire test set
         def test_score():
-            return [test_score_i(i) for i in range(n_test_batches)]
+            return [test(teX[i * self.batch_size:
+                             (i + 1) * self.batch_size],
+                         teY[i * self.batch_size:
+                             (i + 1) * self.batch_size])
+                    for i in range(self.n_test_batch)]
 
-        return train_fn, valid_score, test_score
+        return train, valid, test
 
 
 class RNN(object):

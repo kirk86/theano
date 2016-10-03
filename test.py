@@ -1,27 +1,26 @@
 from loader import Loader
 from trainer import Trainer
+import numpy as np
 
 
 load = Loader('../media/datasets/')
-trX, trY, teX, teY, _ = load.stl10()
+trX, trY, teX, teY = load.mnist()
+
+# load = Loader('../media/datasets/')
+# trX, trY, teX, teY, _ = load.stl10()
 
 # load = Loader('../media/datasets/cifar10/')
 # trX, trY, teX, teY = load.cifar10()
 
-# load = Loader('../media/datasets/')
-# trX, trY, teX, teY = load.mnist()
-# dataset = (trX, trY, teX, teY)
-# trainer = Trainer(dataset)
+dataset = (trX, trY, teX, teY)
+trainer = Trainer(dataset)
 # # trainer.train_logistic_regression('randn', trX.shape[1], 784,)
 # # trainer.train_multilayer_perceptron('randn', trX.shape[1], 500, 10)
 # # trainer.train_autoencoder('randn', trX.shape[1], 784)
 # trainer.train_denoisy_autoencoder('randn', trX.shape[1], 500)
+trainer.train_stacked_denoisy_autoencoder('randn')
 
 
-# validX = trXs[5000:15000, :]
-# validY = trY[5000:15000, :]
-# trX = np.delete(trX, range(5000, 15000), 0)
-# trY = np.delete(trY, range(5000, 15000), 0)
 
 # n_classes = 10
 # X = tt.fmatrix(name='X')

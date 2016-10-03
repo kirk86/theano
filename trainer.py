@@ -431,37 +431,54 @@ class Trainer(object):
         #     tile_spacing=(1, 1)))
         # image.save('filters_corruption_30.png')
 
-    def train_stacked_denoisy_autoencoder(self, distribution):
+    def train_stacked_denoisy_autoencoder(self, distribution,
+                                          batch_size=6,
+                                          pretrain_epochs=15,
+                                          pretrain_lr=0.01,
+                                          finetune_lr=0.01):
 
         X = tt.fmatrix('X')
-        y = tt.fmatrix('y')
 
         print('... building the model')
         # construct the stacked denoising autoencoder class
+        sda = StackedDenoisyAutoEncoder(distribution,
+                                        784,
+                                        [500, 1024, 2048],
+                                        10,
+                                        [0.1, 0.2, 0.3])
 
         #########################
         # PRETRAINING THE MODEL #
         #########################
         print('... getting the pretraining functions')
-        index            = tt.lscalar('index')  # index to a minibatch
-        corruption_level = tt.scalar('corruption')  # % of corruption to use
-        learning_rate    = tt.scalar('lr')  # learning rate to use
+        # pretrain_fcns = sda.pretrain_fcns(self.trX, self.batch_size)
+
+        index = tt.lscalar('index')  # index to a minibatch
+        noise_level = tt.scalar('corruption')  # % of corruption to use
+        learning_rate = tt.scalar('lr')  # learning rate to use
         # begining of a batch, given `index`
-        batch_begin      = index * batch_size
+        batch_start = index * batch_size
         # ending of a batch given `index`
-        batch_end        = batch_begin + batch_size
+        batch_end = batch_start + batch_size
+
+        trX_sh = theano.shared(self.trX)
 
         pretrain_fcns = []
-        for dA in self.dA_layers:
+        for dA in sda.dA_layers:
             # get the cost and the updates list
-            cost, updates = dA.get_cost_updates(corruption_level,
+            cost, updates = dA.get_cost_updates(noise_level,
                                                 learning_rate)
             # compile the theano function
-            fcn = theano.function(inputs=[X,
-                                         theano.In(corruption_level, value=0.2),
-                                         theano.In(learning_rate, value=0.1)],
+            fcn = theano.function(inputs=[index,
+                                          theano.In(noise_level, value=0.2),
+                                          theano.In(learning_rate, value=0.1)],
                                   outputs=cost,
-                                  updates=updates, allow_input_downcast=True)
+                                  updates=updates,
+                                  givens={
+                                      X:
+                                      trX_sh[batch_start: batch_end]
+                                  },
+                                  allow_input_downcast=True)
             pretrain_fcns.append(fcn)
 
         print('... pre-training the model')
@@ -470,13 +487,13 @@ class Trainer(object):
         noise_levels = [.1, .2, .3]
         for i in range(sda.n_layers):
             # go through pretraining epochs
-            for epoch in range(pretraining_epochs):
+            for epoch in range(pretrain_epochs):
                 # go through the training set
                 loss = []
-                for batch_index in range(self.n_train_batch):
-                    loss.append(pretraining_fcns[i](index=batch_index,
-                                                    corruption=corruption_levels[i],
-                                                    lr=pretrain_lr))
+                for batch_idx in range(self.n_train_batch):
+                    loss.append(pretrain_fcns[i](batch_idx,
+                                                 noise_levels[i],
+                                                 pretrain_lr))
                 print("Pre-training layer {}, epoch {}, cost {}"
                       .format(i + 1, epoch, np.mean(loss)))
 
@@ -491,29 +508,38 @@ class Trainer(object):
         # get the training, validation and testing function for the model
         print('... getting the finetuning functions')
 
-        index = tt.lscalar('index')  # index to a [mini]batch
+        # index = tt.lscalar('index')  # index to a [mini]batch
 
-        # compute the gradients with respect to the model parameters
-        gparams = tt.grad(self.finetune_cost, self.params)
+        # # compute the gradients with respect to the model parameters
+        # gparams = tt.grad(self.finetune_cost, self.params)
 
-        # compute list of fine-tuning updates
-        updates = [(param, param - gparam * learning_rate)
-                   for param, gparam in zip(self.params, gparams)]
+        # # compute list of fine-tuning updates
+        # updates = [(param, param - gparam * learning_rate)
+        #            for param, gparam in zip(self.params, gparams)]
 
-        train = theano.function(inputs=[X, y], outputs=self.finetune_cost,
-                                updates=updates, allow_input_downcast=True)
+        # train = theano.function(inputs=[X, y], outputs=self.finetune_cost,
+        #                         updates=updates, allow_input_downcast=True)
 
-        test = theano.function([X, y], self.errors, allow_input_downcast=True)
+        # test = theano.function([X, y], self.errors, allow_input_downcast=True)
 
-        valid = theano.function([X, y], self.errors, allow_input_downcast=True)
+        # valid = theano.function([X, y], self.errors, allow_input_downcast=True)
 
-        # Create a function that scans the entire validation set
-        def valid_score():
-            return [valid(i) for i in range(n_valid_batches)]
+        # # Create a function that scans the entire validation set
+        # def valid_score():
+        #     return [valid(i) for i in range(n_valid_batches)]
 
-        # Create a function that scans the entire test set
-        def test_score():
-            return [test(i) for i in range(n_test_batches)]
+        # # Create a function that scans the entire test set
+        # def test_score():
+        #     return [test(i) for i in range(n_test_batches)]
 
+        dataset = [(self.trX, self.trY),
+                   (self.valX, self.valY),
+                   (self.teX, self.teY)]
+
+        train, valid, test = sda.finetune_fcns(dataset,
+                                               self.batch_size,
+                                               finetune_lr,
+                                               self.n_valid_batch,
+                                               self.n_train_batch)
         print("... finetuning the model")
         self.early_stopping(train, test, valid, predict=None)
