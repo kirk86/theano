@@ -420,11 +420,9 @@ class Trainer(object):
 
         toc = timeit.default_timer()
 
-        train_duration = (toc - tic)
-
         print("The 30% corruption code for file {}, ran for {:.2f}m %"
               .format(inspect.getfile(inspect.currentframe()),
-                      (train_duration / 60.)))
+                      ((toc - tic) / 60.)))
 
         # image = Image.fromarray(
         # tile_raster_images(X=dae_noise.W.get_value(borrow=True).T,
@@ -434,7 +432,7 @@ class Trainer(object):
 
     def train_stacked_denoisy_autoencoder(self, distribution,
                                           batch_size=128,
-                                          pretrain_epochs=25,
+                                          pretrain_epochs=5,
                                           pretrain_lr=0.01,
                                           finetune_lr=0.01):
 
@@ -468,7 +466,7 @@ class Trainer(object):
                                  noise_levels[i],
                                  pretrain_lr))
                 print("Pre-training layer {}, epoch {}, cost {}"
-                      .format(i + 1, epoch, np.mean(loss)))
+                      .format(i + 1, epoch + 1, np.mean(loss)))
 
         toc = timeit.default_timer()
 
@@ -491,4 +489,4 @@ class Trainer(object):
                                                self.n_valid_batch,
                                                self.n_train_batch)
         print("... finetuning the model")
-        self.early_stopping(train, test, valid, predict=None)
+        self.early_stopping(sda, train, test, valid)
