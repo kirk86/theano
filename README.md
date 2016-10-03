@@ -17,7 +17,7 @@ trainer = Trainer(dataset)
 
 
 ```
-trainer.train_logistic_regression(distribution='randn', fan_in28*28, fan_out=10)
+trainer.train_logistic_regression(distribution='randn', fan_in=28*28, fan_out=10)
 ```
 
 ### train multilayer perceptron
