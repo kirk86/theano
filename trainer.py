@@ -17,6 +17,7 @@ from utils import Utils
 
 rng = np.random.RandomState(123)
 srng = tt.shared_randomstreams.RandomStreams(np.random.randint(2 ** 30))
+theano.config.exception_verbosity = 'high'
 
 
 class Trainer(object):
@@ -432,54 +433,24 @@ class Trainer(object):
         # image.save('filters_corruption_30.png')
 
     def train_stacked_denoisy_autoencoder(self, distribution,
-                                          batch_size=6,
-                                          pretrain_epochs=15,
+                                          batch_size=128,
+                                          pretrain_epochs=25,
                                           pretrain_lr=0.01,
                                           finetune_lr=0.01):
-
-        X = tt.fmatrix('X')
 
         print('... building the model')
         # construct the stacked denoising autoencoder class
         sda = StackedDenoisyAutoEncoder(distribution,
-                                        784,
-                                        [500, 1024, 2048],
-                                        10,
-                                        [0.1, 0.2, 0.3])
+                                        fan_in=784,
+                                        n_hidden_sizes=[500, 1024, 2048],
+                                        fan_out=10,
+                                        noise_levels=[0.1, 0.2, 0.3])
 
         #########################
         # PRETRAINING THE MODEL #
         #########################
         print('... getting the pretraining functions')
-        # pretrain_fcns = sda.pretrain_fcns(self.trX, self.batch_size)
-
-        index = tt.lscalar('index')  # index to a minibatch
-        noise_level = tt.scalar('corruption')  # % of corruption to use
-        learning_rate = tt.scalar('lr')  # learning rate to use
-        # begining of a batch, given `index`
-        batch_start = index * batch_size
-        # ending of a batch given `index`
-        batch_end = batch_start + batch_size
-
-        trX_sh = theano.shared(self.trX)
-
-        pretrain_fcns = []
-        for dA in sda.dA_layers:
-            # get the cost and the updates list
-            cost, updates = dA.get_cost_updates(noise_level,
-                                                learning_rate)
-            # compile the theano function
-            fcn = theano.function(inputs=[index,
-                                          theano.In(noise_level, value=0.2),
-                                          theano.In(learning_rate, value=0.1)],
-                                  outputs=cost,
-                                  updates=updates,
-                                  givens={
-                                      X:
-                                      trX_sh[batch_start: batch_end]
-                                  },
-                                  allow_input_downcast=True)
-            pretrain_fcns.append(fcn)
+        pretrain_fcns = sda.pretrain_fcns(self.batch_size)
 
         print('... pre-training the model')
         tic = timeit.default_timer()
@@ -491,46 +462,24 @@ class Trainer(object):
                 # go through the training set
                 loss = []
                 for batch_idx in range(self.n_train_batch):
-                    loss.append(pretrain_fcns[i](batch_idx,
-                                                 noise_levels[i],
-                                                 pretrain_lr))
+                    loss.append(pretrain_fcns[i]
+                                (self.trX[batch_idx * self.batch_size:
+                                          (batch_idx + 1) * self.batch_size],
+                                 noise_levels[i],
+                                 pretrain_lr))
                 print("Pre-training layer {}, epoch {}, cost {}"
                       .format(i + 1, epoch, np.mean(loss)))
 
         toc = timeit.default_timer()
 
         print("The pretraining code for file {} ran for {:.2f}m"
-              .format((toc - tic)/60.,
-                      inspect.getfile(inspect.currentframe())))
+              .format(inspect.getfile(inspect.currentframe()),
+                      (toc - tic)/60.))
         ########################
         # FINETUNING THE MODEL #
         ########################
         # get the training, validation and testing function for the model
         print('... getting the finetuning functions')
-
-        # index = tt.lscalar('index')  # index to a [mini]batch
-
-        # # compute the gradients with respect to the model parameters
-        # gparams = tt.grad(self.finetune_cost, self.params)
-
-        # # compute list of fine-tuning updates
-        # updates = [(param, param - gparam * learning_rate)
-        #            for param, gparam in zip(self.params, gparams)]
-
-        # train = theano.function(inputs=[X, y], outputs=self.finetune_cost,
-        #                         updates=updates, allow_input_downcast=True)
-
-        # test = theano.function([X, y], self.errors, allow_input_downcast=True)
-
-        # valid = theano.function([X, y], self.errors, allow_input_downcast=True)
-
-        # # Create a function that scans the entire validation set
-        # def valid_score():
-        #     return [valid(i) for i in range(n_valid_batches)]
-
-        # # Create a function that scans the entire test set
-        # def test_score():
-        #     return [test(i) for i in range(n_test_batches)]
 
         dataset = [(self.trX, self.trY),
                    (self.valX, self.valY),

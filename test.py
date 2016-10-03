@@ -1,6 +1,8 @@
 from loader import Loader
 from trainer import Trainer
-import numpy as np
+import theano
+
+theano.config.exception_verbosity = 'high'
 
 
 load = Loader('../media/datasets/')
@@ -18,7 +20,7 @@ trainer = Trainer(dataset)
 # # trainer.train_multilayer_perceptron('randn', trX.shape[1], 500, 10)
 # # trainer.train_autoencoder('randn', trX.shape[1], 784)
 # trainer.train_denoisy_autoencoder('randn', trX.shape[1], 500)
-trainer.train_stacked_denoisy_autoencoder('randn')
+trainer.train_stacked_denoisy_autoencoder(distribution='randn')
 
 
 

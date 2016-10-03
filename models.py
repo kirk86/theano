@@ -567,7 +567,7 @@ class StackedDenoisyAutoEncoder(object):
         # minibatch, given by self.x and self.y
         self.errors = self.logisticLayer.errors(self.y)
 
-    def pretrain_fcns(self, minibatch_idx, trX, batch_size):
+    def pretrain_fcns(self, batch_size):
         ''' Generates a list of functions, each of them implementing one
         step in trainnig the dA corresponding to the layer with same index.
         The function will require as input the minibatch index, and to train
@@ -584,12 +584,13 @@ class StackedDenoisyAutoEncoder(object):
         '''
 
         # index to a [mini]batch
+        # index = tt.lscalar('index')  # index to a minibatch
         noise_level = tt.scalar('corruption')  # % of corruption to use
         learning_rate = tt.scalar('lr')  # learning rate to use
         # begining of a batch, given `index`
-        batch_start = minibatch_idx * batch_size
-        # ending of a batch given `index`
-        batch_end = batch_start + batch_size
+        # batch_start = index * batch_size
+        # # ending of a batch given `index`
+        # batch_end = batch_start + batch_size
 
         pretrain_fns = []
         for dA in self.dA_layers:
@@ -597,11 +598,11 @@ class StackedDenoisyAutoEncoder(object):
             cost, updates = dA.get_cost_updates(noise_level,
                                                 learning_rate)
             # compile the theano function
-            fn = theano.function(inputs=[self.X[batch_start: batch_end],
+            fn = theano.function(inputs=[self.X,
                                          theano.In(noise_level, value=0.2),
                                          theano.In(learning_rate, value=0.1)],
                                  outputs=cost,
-                                 updates=updates,
+                                 updates=updates
                                  )
             # append `fn` to the list of functions
             pretrain_fns.append(fn)
