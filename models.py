@@ -314,7 +314,7 @@ class ContractiveAutoEncoder(object):
     """ Contractive Auto-Encoder class (cA)
 
     The contractive autoencoder tries to reconstruct the input with an
-    additional constraint on the latent space. With the objective of
+    additional constraint on the latent space. Objective of
     obtaining a robust representation of the input space, we
     regularize the L2 norm(Froebenius) of the jacobian of the hidden
     representation with respect to the input. Please refer to Rifai et
@@ -339,7 +339,7 @@ class ContractiveAutoEncoder(object):
 
     """
 
-    def __init__(self, rng, input=None, n_visible=784, n_hidden=100,
+    def __init__(self, distribution, input=None, n_visible=784, n_hidden=100,
                  n_batchsize=1, W=None, bhid=None, bvis=None):
         """Initialize the cA class by specifying the number of visible units
         (the dimension d of the input), the number of hidden units (the
@@ -380,18 +380,19 @@ class ContractiveAutoEncoder(object):
         # note : W' was written as `W_prime` and b' as `b_prime`
         if not W:
             weights = Weights(
+                distribution,
                 low=-4 * np.sqrt(6. / (n_hidden + n_visible)),
                 high=4 * np.sqrt(6. / (n_hidden + n_visible))
                 )
 
-            W = weights.weights_init(fan_in=n_visible,
-                                     an_out=n_hidden, name='CA.W')
+            W = weights.init_weights(fan_in=n_visible,
+                                     fan_out=n_hidden, name='CA.W')
 
         if not bvis:
-            bvis = weights.weights_init(fan_out=n_visible, name='CA.bvis')
+            bvis = weights.init_weights(fan_out=n_visible, name='CA.bvis')
 
         if not bhid:
-            bhid = weights.weights_init(fan_out=n_hidden, name='CA.bhid')
+            bhid = weights.init_weights(fan_out=n_hidden, name='CA.bhid')
 
         self.W = W
         # b corresponds to the bias of the hidden

@@ -3,6 +3,7 @@ import theano.tensor as tt
 
 import numpy as np
 
+
 class Criterion(object):
 
     def __init__(self):

@@ -13,6 +13,7 @@ from models import MultiLayerPerceptron
 from models import AutoEncoder
 from models import DenoisyAutoEncoder
 from models import StackedDenoisyAutoEncoder
+from models import ContractiveAutoEncoder
 from utils import Utils
 
 rng = np.random.RandomState(123)
@@ -205,13 +206,14 @@ class Trainer(object):
               " with test error {}%."
               .format(best_valid_error * 100., test_error * 100.))
 
-        print("Model accuracy on test set: {}%."
-              .format(
-                  np.mean(
-                      np.argmax(self.teY, axis=1) == predict(self.teX)
-                         ) * 100
-                     )
-              )
+        if predict is not None:
+            print("Model accuracy on test set: {}%."
+                  .format(
+                      np.mean(
+                          np.argmax(self.teY, axis=1) == predict(self.teX)
+                          ) * 100
+                      )
+                  )
 
         print("The code run for {} epochs, with {} epochs/sec."
               .format(epoch, 1. * epoch / (toc - tic)))
@@ -220,7 +222,7 @@ class Trainer(object):
               .format(inspect.getfile(inspect.currentframe()),
                       (toc - tic)))
 
-    def predict(self):
+    def predict(self, X):
         """
         An example of how to load a trained model and use it
         to predict labels.
@@ -490,3 +492,69 @@ class Trainer(object):
                                                self.n_train_batch)
         print("... finetuning the model")
         self.early_stopping(sda, train, test, valid)
+
+    def train_contractive_autoencoder(self, distribution, batch_size=128,
+                                      contraction_level=.1,
+                                      learning_rate=0.01,
+                                      output_folder='cA_plots'):
+
+        # allocate symbolic variables for the data
+        X = tt.fmatrix('X')  # the data is presented as rasterized images
+
+        if not os.path.isdir(output_folder):
+            os.makedirs(output_folder)
+        os.chdir(output_folder)
+        ####################################
+        #        BUILDING THE MODEL        #
+        ####################################
+
+        contractive_autoencoder = ContractiveAutoEncoder(distribution, input=X,
+                                                         n_visible=28*28,
+                                                         n_hidden=500,
+                                                         n_batchsize=self.batch_size)
+
+        cost, updates = contractive_autoencoder.get_cost_updates(
+            contraction_level=contraction_level,
+            learning_rate=learning_rate)
+
+        train = theano.function([X], [tt.mean(contractive_autoencoder.L_rec),
+                                      contractive_autoencoder.L_jacob],
+                                updates=updates)
+
+        tic = timeit.default_timer()
+
+        ############
+        # TRAINING #
+        ############
+
+        # go through training epochs
+        for epoch in range(self.n_epochs):
+            # go through trainng set
+            cost = []
+            for batch_idx in range(self.n_train_batch):
+                cost.append(train(self.trX[batch_idx * self.batch_size:
+                                           (batch_idx + 1) * self.batch_size]))
+
+            c_array = np.vstack(cost)
+            print("Training epoch {}, reconstruction cost {},"
+                  " jacobian norm {}".format(epoch, np.mean(
+                      c_array[0]), np.mean(np.sqrt(c_array[1]))))
+
+        toc = timeit.default_timer()
+
+        print("The code for file {} ran for {:.2f}m."
+              .format(inspect.getfile(inspect.currentframe()),
+                      (toc - tic)/60.))
+        try:
+            import PIL.Image as Image
+        except ImportError:
+            import Image
+
+        image = Image.fromarray(Utils.tile_raster_images(
+            X=contractive_autoencoder.W.get_value(borrow=True).T,
+            img_shape=(28, 28), tile_shape=(10, 10),
+            tile_spacing=(1, 1)))
+
+        image.save('cae_filters.png')
+
+        os.chdir('../')
