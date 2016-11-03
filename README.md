@@ -46,6 +46,6 @@ fan_in=784, n_hidden_sizes=[500, 1024], fan_out=10, noise_levels=[0.1, 0.2])
 
 ### train contractive autoencoder
 
-``` trainer.train_contractive_autoencoder(distribution='randn',
-fan_in=784, fan_out=10)
+```
+trainer.train_contractive_autoencoder(distribution='randn', fan_in=784, fan_out=10)
 ```
