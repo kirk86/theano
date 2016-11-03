@@ -40,8 +40,10 @@ trainer.train_denoisy_autoencoder(distribution='randn', n_visible=28*28, n_hidde
 
 ### train stacked denoisy autoencoder
 
-``` trainer.train_stacked_denoisy_autoencoder(distribution='randn',
-fan_in=784, n_hidden_sizes=[500, 1024], fan_out=10, noise_levels=[0.1, 0.2])
+```
+trainer.train_stacked_denoisy_autoencoder(distribution='randn',
+fan_in=784, n_hidden_sizes=[500, 1024], fan_out=10, noise_levels=[0.1,
+0.2])
 ```
 
 ### train contractive autoencoder
