@@ -677,8 +677,9 @@ class RNN(object):
 
 class RBM(object):
     """Restricted Boltzmann Machine (RBM)  """
-    def __init__(self, input=None, n_visible=784, n_hidden=500, W=None,
-                 hbias=None, vbias=None, rng=None, srng=None):
+    def __init__(self, distribution, input=None, n_visible=784,
+                 n_hidden=500, W=None, hbias=None, vbias=None,
+                 rng=None, srng=None):
         """
         RBM constructor. Defines the parameters of the model along with
         basic operations for inferring hidden from visible (and vice-versa),
@@ -711,26 +712,27 @@ class RBM(object):
 
         if W is None:
             weights = Weights(
+                distribution,
                 low=-4 * np.sqrt(6. / (n_hidden + n_visible)),
                 high=4 * np.sqrt(6. / (n_hidden + n_visible))
                 )
 
-            W = weights.weights_init(fan_in=n_visible,
+            W = weights.init_weights(fan_in=n_visible,
                                      fan_out=n_hidden,
                                      name='RBM.W')
 
         if hbias is None:
             # create shared variable for hidden units bias
-            hbias = weights.weights_init(fan_out=n_hidden, name='RBM.hbias')
+            hbias = weights.init_weights(fan_out=n_hidden, name='RBM.hbias')
 
         if vbias is None:
             # create shared variable for visible units bias
-            vbias = weights.weights_init(fan_out=n_visible, name='RBM.vbias')
+            vbias = weights.init_weights(fan_out=n_visible, name='RBM.vbias')
 
         # initialize input layer for standalone RBM or layer0 of DBN
         self.input = input
         if not input:
-            self.input = tt.fmatrix('input')
+            self.input = tt.fmatrix('X')
 
         self.W = W
         self.hbias = hbias
